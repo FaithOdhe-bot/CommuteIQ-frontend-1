@@ -145,7 +145,7 @@ export default function RouteSearchForm({ city, onCityChange, onSearch, isLoadin
       </div>
 
       <button type="submit" className="btn-primary" disabled={isLoading || modesLoading || modes.length === 0}>
-        {isLoading ? "Get Recommendation" : modesLoading ? "Loading transport options…" : "Fetching recommendations..."}
+        {isLoading ? "Get Recommendations" : modesLoading ? "Loading transport options…" : "Fetch recommendations"}
       </button>
     </form>
   );
