@@ -1,8 +1,22 @@
 # CommuteIQ — Frontend
 
-React + Vite frontend for the CommuteIQ hackathon project. Works fully
-on **real, free data** before your backend is ready: real geocoding, real
-road-network routing, and a documented (not invented) congestion model.
+React + Vite frontend for CommuteIQ, an AI-powered commute assistant for
+African cities. Built for the Girls in STEM Global Hackathon 2026 under
+[Mazal Arc](https://mazalarc.com).
+
+**Live demo:** https://commuteiq-frontend.vercel.app
+
+---
+
+## What it does
+
+CommuteIQ tells commuters not just *where* to go but *when* to leave and
+*why* — across 15 transport modes in 11 African cities. The frontend
+connects to a FastAPI backend that runs XGBoost travel-time prediction,
+safety scoring from real crash data, live weather intelligence, flood zone
+detection, and community-powered road reports.
+
+---
 
 ## Local setup
 
@@ -11,55 +25,145 @@ npm install
 npm run dev
 ```
 
-Opens at http://localhost:5173. With no `.env.local` file, the app geocodes
-your origin/destination for real via OpenStreetMap Nominatim, gets a real
-route from OSRM, and applies a mode/time-of-day multiplier calibrated
-against published commute-time research (see comments in
-`src/api/congestionModel.js` for exact sources). The results card flags
-this clearly so no one mistakes it for a live ML prediction from your
-backend.
+Opens at **http://localhost:5173**.
 
-## Data sources used
+You need a running backend for predictions to work. Set your backend URL:
 
-| Source | What it gives you | Free? |
-|---|---|---|
-| [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org) | Geocoding place names to coordinates | Yes, rate-limited |
-| [OSRM public demo](http://project-osrm.org) | Real driving/walking routes and distances | Yes, for light/demo use |
-| [Travel Times by Transportation Mode in Nairobi](https://zenodo.org/records/1134020) (Rising & Campbell, 2017) | Measured walking/driving/matatu travel times across Nairobi — useful for calibrating or training a real model | Yes |
-| [Nairobi Matatu GTFS](https://hub.tumidata.org) (Digital Matatus) | Real matatu route/stop geometry | Yes |
-| [Kenya Roads / Nigeria Roads](https://data.humdata.org) (OSM exports via HDX) | Full road network data for both countries | Yes |
+```bash
+cp .env.local.example .env.local
+# Edit .env.local and set VITE_API_URL to your backend URL
+```
 
-Nigeria doesn't yet have an equivalent measured danfo/okada dataset — that's
-a real, disclosed gap, not something papered over. The app estimates Lagos
-modes using the same OSRM road data plus a multiplier calibrated against
-published Lagos commute-time research, clearly labeled as estimated.
+| Environment | Value |
+|---|---|
+| Local backend | `http://localhost:8000` |
+| Railway (deployed) | `https://your-app.up.railway.app` |
 
-## Connecting the real backend
+If `VITE_API_URL` is not set, the app throws a descriptive error — there
+is no mock fallback. Run the backend locally or point to the deployed one.
 
-1. Copy `.env.local.example` to `.env.local`.
-2. Set `VITE_API_URL` to your Render backend URL.
-3. Restart `npm run dev`.
-
-## Deploying to Vercel
-
-1. Push this folder to a GitHub repo.
-2. In Vercel: New Project → import the repo → it auto-detects Vite.
-3. In Project Settings → Environment Variables, add `VITE_API_URL` with
-   your Render backend URL.
-4. Deploy. Every push to `main` redeploys automatically; every branch/PR
-   gets its own preview URL.
+---
 
 ## Project structure
 
 ```
+public/                          Static assets
+
 src/
-  api/client.js              API calls + mock fallback
-  components/
-    RouteSearchForm.jsx      Origin, destination, mode, time
-    ResultsCard.jsx          ETA, safety score, AI explanation, advice
-    SafetyScoreBadge.jsx     Small circular 0-100 score badge
-    MapView.jsx              Leaflet map + community report pins
-    CommunityReportForm.jsx  Submit an accident/flood/traffic/closure report
-  App.jsx                    Layout + state
-  index.css                  All styling
+├── api/
+│   ├── client.js                All backend API calls (predict, recommend, report, modes)
+│   ├── geocode.js               Nominatim geocoding — used for map pin placement only
+│   └── format.js                formatDuration() helper (e.g. "1h 20min")
+│
+├── components/
+│   ├── RouteSearchForm.jsx      Country/city selector, origin/destination, mode pills, time
+│   ├── ResultsCard.jsx          Travel time, safety score, AI explanation, v2 intelligence
+│   ├── SafetyScoreBadge.jsx     Circular 0-100 safety badge (Safe / Caution / High risk)
+│   ├── DepartureOptions.jsx     4-window departure comparison with arrival times
+│   ├── MapView.jsx              Leaflet map, route line, origin/destination pins, report pins
+│   └── CommunityReportForm.jsx  Submit accident/flood/closure/traffic report
+│
+├── App.jsx                      Root layout, state management, search orchestration
+├── main.jsx                     React entry point
+└── index.css                    All styles
 ```
+
+---
+
+## API endpoints used
+
+| Call | Endpoint | Purpose |
+|---|---|---|
+| `getModes(city)` | `GET /modes?city=` | Populate transport mode pills per city |
+| `getPrediction(...)` | `POST /v2/predict` | Full prediction with confidence, flood risk, weather trend |
+| `getModeComparison(...)` | `POST /v2/predict` × N | Parallel predictions for all modes |
+| `getRecommendation(...)` | `POST /recommend` | 4 departure windows with best recommendation |
+| `submitReport(...)` | `POST /v2/report` | Ethics-enforced community report with expiry |
+| `getReports(city)` | `GET /reports?city=` | Active community reports for map pins |
+
+---
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `VITE_API_URL` | ✅ Yes | Full URL of the FastAPI backend, no trailing slash |
+
+Create `.env.local` for local development:
+```
+VITE_API_URL=http://localhost:8000
+```
+
+For Vercel: Project Settings → Environment Variables → add `VITE_API_URL`.
+
+---
+
+## Deploying to Vercel
+
+1. Push this repo to GitHub (must be on `main` branch)
+2. Go to [vercel.com](https://vercel.com) → New Project → Import repo
+3. Vercel auto-detects Vite — no build config needed
+4. Add environment variable: `VITE_API_URL` = your Railway backend URL
+5. Deploy
+
+Every push to `main` triggers an automatic redeploy.
+Every branch/PR gets its own preview URL.
+
+---
+
+## Running the backend locally
+
+```bash
+git clone https://github.com/FaithOdhe-bot/CommuteIQ-backend.git
+cd CommuteIQ-backend
+pip install -r requirements.txt
+python train_models.py                    # generates /models/*.pkl
+cp .env.example .env                      # add Supabase keys
+uvicorn app.main:app --reload --port 8000
+```
+
+Swagger UI available at **http://localhost:8000/docs**
+
+---
+
+## Transport modes supported
+
+| Nigeria | Kenya |
+|---|---|
+| 🚗 Private Car | 🚗 Private Car |
+| 🚌 Danfo (Yellow Bus) | 🚐 Matatu (Minibus) |
+| 🚍 BRT Bus | 🚌 City Bus / KBS |
+| 🛵 Okada (Motorcycle Taxi) | 🛵 Boda Boda |
+| 🛺 Keke Napep (Tricycle) | 🛺 Tuk-Tuk |
+| 🚖 Ride Share (Bolt/Uber) | 🚕 Taxi / Cab |
+| 🚶 Walking | 🚖 Ride Share (Bolt/Uber/Little) |
+| | 🚶 Walking |
+
+---
+
+## Cities supported
+
+**Nigeria:** Lagos, Abuja, Kano, Ibadan, Port Harcourt, Enugu
+
+**Kenya:** Nairobi, Mombasa, Kisumu, Nakuru, Eldoret, and 16 more counties
+
+---
+
+## Tech stack
+
+- **React 18** + **Vite 5**
+- **Leaflet.js** + **react-leaflet** — interactive map
+- **OpenStreetMap Nominatim** — place name geocoding for map pins
+- **FastAPI backend** — all predictions, safety scoring, recommendations
+
+---
+
+## Team
+
+| Name | Role |
+|---|---|
+| Faith Odhe |
+Data cleaning| feature engineering |ML model training |safety scoring |road quality |transport modes| weather intelligence| ethical design |Devpost write-up
+
+| Vivian Ndung'u | Full-Stack Developer — FastAPI backend architecture | React frontend |Supabase database| OSRM/Nominatim integration| Vercel deployment| map rendering
+
