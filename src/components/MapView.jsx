@@ -1,5 +1,21 @@
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import { useEffect } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
+
+// Vite bundles assets differently from Webpack — Leaflet's default icon
+// loader breaks because it uses __webpack_public_path__ internally.
+// Deleting _getIconUrl and merging the imported paths fixes all three
+// 404s (marker-icon.png, marker-icon-2x.png, marker-shadow.png).
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconUrl:       markerIcon,
+  iconRetinaUrl: markerIcon2x,
+  shadowUrl:     markerShadow,
+});
 
 const CITY_CENTERS = {
   // Nigeria
