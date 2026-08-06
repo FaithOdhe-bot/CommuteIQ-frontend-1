@@ -28,13 +28,34 @@ async function handleResponse(res, action) {
   return res.json();
 }
 
-// Single prediction for one mode — matches Faith's real /predict contract exactly.
+// ── FIX 1: City-enriched place names ─────────────────────────────────────────
+// Nominatim geocoding on the backend needs city context to resolve ambiguous
+// place names. "Kasarani" alone can match dozens of places globally.
+// "Kasarani, Nairobi" resolves immediately and correctly.
+// This enrichment is done here in the client so the backend stays clean.
+function enrichPlace(place, city) {
+  if (!place || !city) return place;
+  const p = place.trim();
+  const c = city.trim();
+  // Don't double-add city if user already typed it
+  if (p.toLowerCase().includes(c.toLowerCase())) return p;
+  return `${p}, ${c}`;
+}
+
+// ── FIX 2: Use /v2/predict — includes confidence, flood risk, weather trend ──
+// Single prediction for one mode — matches Faith's real /v2/predict contract.
 export async function getPrediction({ origin, destination, mode, time, city }) {
   requireApiUrl();
-  const res = await fetch(`${API_URL}/predict`, {
+  const res = await fetch(`${API_URL}/v2/predict`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ origin, destination, mode, time, city }),
+    body: JSON.stringify({
+      origin:      enrichPlace(origin, city),
+      destination: enrichPlace(destination, city),
+      mode,
+      time,
+      city,
+    }),
   });
   return handleResponse(res, "Prediction request");
 }
@@ -55,9 +76,10 @@ export async function getModeComparison({ origin, destination, time, city, modes
     .filter(Boolean);
 }
 
+// ── FIX 3: Use /v2/report — ethics check + privacy anonymization + expiry ────
 export async function submitReport({ city, type, location, lat, lng }) {
   requireApiUrl();
-  const res = await fetch(`${API_URL}/report`, {
+  const res = await fetch(`${API_URL}/v2/report`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ city, type, location, lat, lng }),
@@ -72,12 +94,19 @@ export async function getReports(city) {
   return data.reports ?? [];
 }
 
+// ── FIX 4: Enrich place names in /recommend too ───────────────────────────────
 export async function getRecommendation({ origin, destination, mode, city, time }) {
   requireApiUrl();
   const res = await fetch(`${API_URL}/recommend`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ origin, destination, mode, city, time }),
+    body: JSON.stringify({
+      origin:      enrichPlace(origin, city),
+      destination: enrichPlace(destination, city),
+      mode,
+      city,
+      time,
+    }),
   });
   return handleResponse(res, "Recommendation request");
 }
@@ -87,8 +116,11 @@ export async function getModes(city) {
   const res = await fetch(`${API_URL}/modes?city=${encodeURIComponent(city)}`);
   return handleResponse(res, "Fetching modes");
 }
+
+// ── FIX 5: checkHealth was missing the fetch call entirely ───────────────────
 export async function checkHealth() {
   requireApiUrl();
+  const res = await fetch(`${API_URL}/health`);
   return handleResponse(res, "Health check");
 }
 
