@@ -4,7 +4,7 @@ import ResultsCard from "./components/ResultsCard.jsx";
 import DepartureOptions from "./components/DepartureOptions.jsx";
 import MapView from "./components/MapView.jsx";
 import CommunityReportForm from "./components/CommunityReportForm.jsx";
-import { getModeComparison, getRecommendation, geocodeForMap, getReports } from "./api/client.js";
+import { getModeComparison, getRecommendation, geocodeForMap, getReports, checkHealth } from "./api/client.js";
 
 export default function App() {
   const [city, setCity] = useState("nairobi");
@@ -19,6 +19,13 @@ export default function App() {
   // FIX 1: Store last search params so we can pass departureTime to ResultsCard
   // and re-fetch recommendation when the user switches mode.
   const [lastSearch, setLastSearch] = useState(null);
+
+  // Silently wake the Render backend on load — free tier sleeps after
+  // 5 min inactivity; pinging /health prevents a 30-60 sec cold start
+  // delay when the user clicks "Fetch recommendations" for the first time.
+  useEffect(() => {
+    checkHealth().catch(() => {}); // fire and forget — errors are fine
+  }, []);
 
   const loadReports = useCallback(async (forCity) => {
     try {
@@ -145,3 +152,4 @@ export default function App() {
     </div>
   );
 }
+  
