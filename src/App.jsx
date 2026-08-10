@@ -24,6 +24,7 @@ function safetyCopy(score) {
 
 export default function App() {
   const [country, setCountry]   = useState("kenya");
+  const [city, setCity]         = useState("nairobi");
   const [origin, setOrigin]     = useState("");
   const [dest, setDest]         = useState("");
   const [time, setTime]         = useState("");
@@ -39,13 +40,31 @@ export default function App() {
   // Wake backend silently
   useEffect(() => { checkHealth().catch(() => {}); }, []);
 
-  // City from country
-  const defaultCity = country === "kenya" ? "nairobi" : "lagos";
+  // City pills per country
+  const CITIES = {
+    kenya:   [
+      { value: "nairobi",   label: "Nairobi" },
+      { value: "mombasa",   label: "Mombasa" },
+      { value: "kisumu",    label: "Kisumu" },
+      { value: "nakuru",    label: "Nakuru" },
+      { value: "eldoret",   label: "Eldoret" },
+    ],
+    nigeria: [
+      { value: "lagos",         label: "Lagos" },
+      { value: "abuja",         label: "Abuja" },
+      { value: "kano",          label: "Kano" },
+      { value: "ibadan",        label: "Ibadan" },
+      { value: "port harcourt", label: "P/Harcourt" },
+      { value: "enugu",         label: "Enugu" },
+      { value: "asaba",         label: "Asaba" },
+      { value: "benin city",    label: "Benin City" },
+    ],
+  };
 
   // Load reports
   const loadReports = useCallback(async () => {
-    try { setReports(await getReports(defaultCity)); } catch {}
-  }, [defaultCity]);
+    try { setReports(await getReports(city)); } catch {}
+  }, [city]);
 
   useEffect(() => { loadReports(); }, [loadReports]);
 
@@ -60,7 +79,7 @@ export default function App() {
     setLoading(true); setError(null); setResults([]); setRecommend(null);
 
     try {
-      const city  = defaultCity;
+      // city is already in state
       const modes = country === "kenya"
         ? ["driving","matatu","bus","boda_boda","tuk_tuk","taxi","rideshare","walking"]
         : ["driving","danfo","brt","okada","keke","rideshare","walking"];
@@ -110,9 +129,27 @@ export default function App() {
             <button
               key={c.key}
               className={`country-btn ${country === c.key ? "active" : ""}`}
-              onClick={() => { setCountry(c.key); setResults([]); setRecommend(null); }}
+              onClick={() => {
+                setCountry(c.key);
+                setCity(c.key === "kenya" ? "nairobi" : "lagos");
+                setResults([]); setRecommend(null);
+                setOrigin(""); setDest("");
+              }}
             >
               <span className="country-flag">{c.flag}</span>
+              {c.label}
+            </button>
+          ))}
+        </div>
+
+        {/* City pills */}
+        <div className="city-pills">
+          {CITIES[country].map(c => (
+            <button
+              key={c.value}
+              className={`city-pill ${city === c.value ? "active" : ""}`}
+              onClick={() => { setCity(c.value); setResults([]); setRecommend(null); setOrigin(""); setDest(""); }}
+            >
               {c.label}
             </button>
           ))}
@@ -284,7 +321,7 @@ export default function App() {
       {/* ── Map ── */}
       {(originPt || results.length > 0) && (
         <MapView
-          city={defaultCity}
+          city={city}
           origin={originPt}
           destination={destPt}
           routeGeometry={results.find(r => r.mode === expanded)?.route_geometry}
@@ -294,12 +331,12 @@ export default function App() {
 
       {/* ── Report ── */}
       <CommunityReportForm
-        city={defaultCity}
+        city={city}
         onReportSubmitted={loadReports}
       />
 
       <footer className="app-footer">
-        Built for the Africa Community 💙
+        Built for the Africa Communities 💙
       </footer>
     </div>
   );
