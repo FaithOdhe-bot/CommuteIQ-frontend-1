@@ -1,155 +1,306 @@
 import { useState, useEffect, useCallback } from "react";
-import RouteSearchForm from "./components/RouteSearchForm.jsx";
-import ResultsCard from "./components/ResultsCard.jsx";
-import DepartureOptions from "./components/DepartureOptions.jsx";
 import MapView from "./components/MapView.jsx";
 import CommunityReportForm from "./components/CommunityReportForm.jsx";
 import { getModeComparison, getRecommendation, geocodeForMap, getReports, checkHealth } from "./api/client.js";
+import { formatDuration } from "./api/format.js";
+
+// Plain-language rewriter — converts backend text to human speech
+function plainify(text) {
+  if (!text) return "";
+  return text
+    .replace(/commute quality:/gi, "")
+    .replace(/route confidence:/gi, "")
+    .replace(/safety score \d+\/100/gi, "")
+    .replace(/\. \./g, ".")
+    .trim();
+}
+
+function safetyCopy(score) {
+  if (!score) return { label: "Check conditions", cls: "caution" };
+  if (score >= 75) return { label: "This route is generally safe", cls: "safe" };
+  if (score >= 50) return { label: "Take normal precautions", cls: "caution" };
+  return { label: "Be extra careful on this route", cls: "risk" };
+}
 
 export default function App() {
-  const [city, setCity] = useState("nairobi");
-  const [options, setOptions] = useState([]);
-  const [selectedMode, setSelectedMode] = useState(null);
-  const [recommendation, setRecommendation] = useState(null);
-  const [originPoint, setOriginPoint] = useState(null);
-  const [destinationPoint, setDestinationPoint] = useState(null);
-  const [reports, setReports] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  // FIX 1: Store last search params so we can pass departureTime to ResultsCard
-  // and re-fetch recommendation when the user switches mode.
-  const [lastSearch, setLastSearch] = useState(null);
+  const [country, setCountry]   = useState("kenya");
+  const [origin, setOrigin]     = useState("");
+  const [dest, setDest]         = useState("");
+  const [time, setTime]         = useState("");
+  const [results, setResults]   = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const [recommend, setRecommend] = useState(null);
+  const [originPt, setOriginPt] = useState(null);
+  const [destPt, setDestPt]     = useState(null);
+  const [reports, setReports]   = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState(null);
 
-  // Silently wake the Render backend on load — free tier sleeps after
-  // 5 min inactivity; pinging /health prevents a 30-60 sec cold start
-  // delay when the user clicks "Fetch recommendations" for the first time.
+  // Wake backend silently
+  useEffect(() => { checkHealth().catch(() => {}); }, []);
+
+  // City from country
+  const defaultCity = country === "kenya" ? "nairobi" : "lagos";
+
+  // Load reports
+  const loadReports = useCallback(async () => {
+    try { setReports(await getReports(defaultCity)); } catch {}
+  }, [defaultCity]);
+
+  useEffect(() => { loadReports(); }, [loadReports]);
+
+  // Apply country theme to <html>
   useEffect(() => {
-    checkHealth().catch(() => {}); // fire and forget — errors are fine
-  }, []);
+    document.documentElement.setAttribute("data-country", country);
+  }, [country]);
 
-  const loadReports = useCallback(async (forCity) => {
+  async function handleSearch(e) {
+    e.preventDefault();
+    if (!origin.trim() || !dest.trim()) return;
+    setLoading(true); setError(null); setResults([]); setRecommend(null);
+
     try {
-      const data = await getReports(forCity);
-      setReports(data);
-    } catch (err) {
-      console.error("Couldn't load community reports:", err);
-    }
-  }, []);
+      const city  = defaultCity;
+      const modes = country === "kenya"
+        ? ["driving","matatu","bus","boda_boda","tuk_tuk","taxi","rideshare","walking"]
+        : ["driving","danfo","brt","okada","keke","rideshare","walking"];
 
-  useEffect(() => {
-    loadReports(city);
-  }, [city, loadReports]);
-
-  // FIX 2: Re-fetch recommendation whenever the user picks a different mode.
-  // Previously the recommendation only fetched once for comparison[0].mode
-  // and never updated when the user clicked a different mode pill.
-  useEffect(() => {
-    if (!selectedMode || !lastSearch) return;
-    getRecommendation({
-      origin:      lastSearch.origin,
-      destination: lastSearch.destination,
-      mode:        selectedMode,
-      city:        lastSearch.city,
-      time:        lastSearch.time,
-    })
-      .then(setRecommendation)
-      .catch((err) => console.error("Recommendation failed:", err));
-  }, [selectedMode, lastSearch]);
-
-  function handleCityChange(newCity) {
-    setCity(newCity);
-    setOptions([]);
-    setSelectedMode(null);
-    setOriginPoint(null);
-    setDestinationPoint(null);
-    setLastSearch(null);
-  }
-
-  async function handleSearch({ origin, destination, time, city: searchCity, modes }) {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const [comparison, originGeo, destGeo] = await Promise.all([
-        getModeComparison({ origin, destination, time, city: searchCity, modes }),
-        geocodeForMap(origin, searchCity),
-        geocodeForMap(destination, searchCity),
+      const [comparison, og, dg] = await Promise.all([
+        getModeComparison({ origin: origin.trim(), destination: dest.trim(), time, city, modes }),
+        geocodeForMap(origin.trim(), city),
+        geocodeForMap(dest.trim(), city),
       ]);
 
-      if (comparison.length === 0) {
-        throw new Error(
-          "The backend couldn't return a prediction for any mode. Check it's running and reachable."
-        );
-      }
+      if (!comparison.length) throw new Error("Couldn't find a route. Try being more specific.");
 
-      // FIX 3: Save the full search params including time
-      setLastSearch({ origin, destination, time, city: searchCity });
-      setOptions(comparison);
-      setSelectedMode(comparison[0].mode);
-      setOriginPoint(originGeo);
-      setDestinationPoint(destGeo);
-      // Recommendation will fire automatically via the useEffect above
+      setResults(comparison);
+      setExpanded(comparison[0].mode);
+      setOriginPt(og); setDestPt(dg);
+
+      getRecommendation({ origin: origin.trim(), destination: dest.trim(),
+        mode: comparison[0].mode, city, time })
+        .then(setRecommend).catch(() => {});
     } catch (err) {
-      console.error(err);
       setError(err.message);
-      setOptions([]);
-      setRecommendation(null);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   }
 
-  const selectedResult = options.find((o) => o.mode === selectedMode) ?? null;
+  const best = results.length
+    ? results.reduce((a, b) => (a.travel_time_min < b.travel_time_min ? a : b))
+    : null;
 
   return (
-    <div className="app-shell">
+    <div className="app">
+      {/* ── Header with country theme ── */}
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark">IQ</span>
-          <div>
+          <div className="brand-mark">IQ</div>
+          <div className="brand-text">
             <h1>CommuteIQ</h1>
-            <p>Community-powered commute intelligence</p>
+            <p>Your commute, simplified</p>
           </div>
+        </div>
+        <div className="country-picker">
+          {[
+            { key: "kenya",   flag: "🇰🇪", label: "Kenya" },
+            { key: "nigeria", flag: "🇳🇬", label: "Nigeria" },
+          ].map(c => (
+            <button
+              key={c.key}
+              className={`country-btn ${country === c.key ? "active" : ""}`}
+              onClick={() => { setCountry(c.key); setResults([]); setRecommend(null); }}
+            >
+              <span className="country-flag">{c.flag}</span>
+              {c.label}
+            </button>
+          ))}
         </div>
       </header>
 
-      <main className="app-main">
-        <section className="search-section">
-          <RouteSearchForm
-            city={city}
-            onCityChange={handleCityChange}
-            onSearch={handleSearch}
-            isLoading={isLoading}
-            options={options}
-            selectedMode={selectedMode}
-            onSelectMode={setSelectedMode}
-          />
-          {error && <p className="form-status error">{error}</p>}
+      {/* ── Search card ── */}
+      <div className="search-card">
+        <form onSubmit={handleSearch}>
+          <div className="search-field">
+            <span className="search-icon">📍</span>
+            <div style={{ flex: 1 }}>
+              <span className="search-label">From</span>
+              <input
+                className="search-input"
+                placeholder={country === "kenya" ? "e.g. Kasarani" : "e.g. Ikeja"}
+                value={origin}
+                onChange={e => setOrigin(e.target.value)}
+                required
+              />
+            </div>
+          </div>
 
-          {/* FIX 4: Pass departureTime so ResultsCard can show arrival time */}
-          <ResultsCard
-            result={selectedResult}
-            departureTime={lastSearch?.time ?? null}
-          />
+          <div className="search-divider">
+            <span className="divider-dot">|</span>
+            <div className="divider-line" />
+          </div>
 
-          <DepartureOptions recommendation={recommendation} />
-        </section>
+          <div className="search-field">
+            <span className="search-icon">🏁</span>
+            <div style={{ flex: 1 }}>
+              <span className="search-label">To</span>
+              <input
+                className="search-input"
+                placeholder={country === "kenya" ? "e.g. CBD" : "e.g. Victoria Island"}
+                value={dest}
+                onChange={e => setDest(e.target.value)}
+                required
+              />
+            </div>
+          </div>
 
-        <section className="map-section">
-          <MapView
-            city={city}
-            origin={originPoint}
-            destination={destinationPoint}
-            routeGeometry={selectedResult?.route_geometry}
-            reports={reports}
-          />
-          <CommunityReportForm city={city} onReportSubmitted={() => loadReports(city)} />
-        </section>
-      </main>
+          <div className="time-row">
+            <span className="time-label">🕐 Leaving at</span>
+            <input
+              type="time"
+              className="time-input"
+              value={time}
+              onChange={e => setTime(e.target.value)}
+            />
+          </div>
+
+          <button type="submit" className="go-btn" disabled={loading}>
+            {loading ? "Finding your route…" : "Get my route →"}
+          </button>
+        </form>
+      </div>
+
+      {error && <div className="error-banner">⚠️ {error}</div>}
+
+      {/* ── Results ── */}
+      {results.length > 0 && (
+        <div className="results-section">
+          <div className="results-header">Your options</div>
+          <div className="mode-cards">
+            {results
+              .filter(r => r.distance_km > 0)
+              .sort((a, b) => a.travel_time_min - b.travel_time_min)
+              .map(r => {
+                const isBest    = best && r.mode === best.mode;
+                const isExpanded= expanded === r.mode;
+                const safety    = safetyCopy(r.safety_score);
+                const mins      = Math.round(r.travel_time_min);
+                const h         = Math.floor(mins / 60);
+                const m         = mins % 60;
+                const timeStr   = h > 0 ? `${h}h ${m}min` : `${mins} min`;
+
+                return (
+                  <div
+                    key={r.mode}
+                    className={`mode-card ${isBest ? "best" : ""} ${isExpanded ? "expanded" : ""}`}
+                    onClick={() => setExpanded(isExpanded ? null : r.mode)}
+                  >
+                    <div className="mode-card-top">
+                      <div className="mode-card-left">
+                        <div className="mode-emoji-wrap">{r.mode_emoji || "🚗"}</div>
+                        <div>
+                          <div className="mode-name">
+                            {r.mode_label || r.mode}
+                            {isBest && <span className="best-badge">Best</span>}
+                          </div>
+                          <div className="mode-subtext">{r.distance_km?.toFixed(1)} km</div>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div className="mode-time">
+                          {h > 0 ? h : mins}
+                          <span className="mode-time-unit">{h > 0 ? "h" : " min"}</span>
+                          {h > 0 && <><span style={{fontSize:16}}> {m}</span><span className="mode-time-unit">m</span></>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expanded detail */}
+                    <div className="mode-detail">
+                      {r.arrival_time && (
+                        <div className="arrive-row">
+                          Leave now → arrive <span className="arrive-time">{r.arrival_time}</span>
+                        </div>
+                      )}
+
+                      <div className="safety-row">
+                        <div className={`safety-dot ${safety.cls}`} />
+                        <span className="safety-text">{safety.label}</span>
+                      </div>
+
+                      {r.ai_explanation && (
+                        <p className="plain-explanation">
+                          {plainify(r.ai_explanation).slice(0, 200)}
+                        </p>
+                      )}
+
+                      {r.alt_suggestion && (
+                        <div className="alert-box">{r.alt_suggestion}</div>
+                      )}
+
+                      {r.flood_risk?.warning && (
+                        <div className="alert-box flood">{r.flood_risk.warning}</div>
+                      )}
+
+                      <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+                        {r.departure_advice}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* ── When to leave ── */}
+      {recommend?.windows?.some(w => w.travel_time > 0) && (
+        <div className="leave-section">
+          <div className="leave-title">⏰ When should you leave?</div>
+          <div className="leave-windows">
+            {recommend.windows.map(w => {
+              const isBestW = w.offset_min === recommend.best_window?.offset_min;
+              const arr = (() => {
+                if (!w.travel_time) return null;
+                const now = new Date();
+                const tot = now.getHours()*60 + now.getMinutes() + w.offset_min + Math.round(w.travel_time);
+                return `${String(Math.floor(tot/60)%24).padStart(2,"0")}:${String(tot%60).padStart(2,"0")}`;
+              })();
+              return (
+                <div key={w.label} className={`leave-window ${isBestW ? "best" : ""}`}>
+                  <div className="leave-window-label">{w.label}</div>
+                  <div className="leave-window-time">
+                    {Math.round(w.travel_time)} <span style={{fontSize:10}}>min</span>
+                  </div>
+                  {arr && <div className="leave-window-arrive">→ {arr}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Map ── */}
+      {(originPt || results.length > 0) && (
+        <MapView
+          city={defaultCity}
+          origin={originPt}
+          destination={destPt}
+          routeGeometry={results.find(r => r.mode === expanded)?.route_geometry}
+          reports={reports}
+        />
+      )}
+
+      {/* ── Report ── */}
+      <CommunityReportForm
+        city={defaultCity}
+        onReportSubmitted={loadReports}
+      />
 
       <footer className="app-footer">
-        <p>Built for the Girls in STEM Global Hackathon</p>
+        Built for the Africa Community 💙
       </footer>
     </div>
   );
 }
-  
