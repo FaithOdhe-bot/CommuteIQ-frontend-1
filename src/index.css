@@ -638,3 +638,41 @@ h1, h2, h3 {
   animation: shimmer 1.4s ease-in-out infinite;
   border-radius: 8px;
 }
+
+/* ── City pills ──────────────────────────────────────────────── */
+.city-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.city-pill {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.75);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.city-pill:hover {
+  background: rgba(255,255,255,0.2);
+  color: white;
+}
+
+.city-pill.active {
+  background: white;
+  color: var(--primary, #0f6e56);
+  border-color: white;
+  font-weight: 700;
+}
+
+/* active pill accent matches country */
+[data-country="kenya"]   .city-pill.active { color: var(--ke-green); }
+[data-country="nigeria"] .city-pill.active { color: var(--ng-green); }
