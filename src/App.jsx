@@ -219,7 +219,9 @@ export default function App() {
               .filter(r => r.distance_km > 0)
               .sort((a, b) => a.travel_time_min - b.travel_time_min)
               .map(r => {
-                const isBest    = best && r.mode === best.mode;
+                const isRestricted = r.alt_suggestion &&
+                  (r.alt_suggestion.includes("⚠️") || r.alt_suggestion.includes("banned"));
+                const isBest    = best && r.mode === best.mode && !isRestricted;
                 const isExpanded= expanded === r.mode;
                 const safety    = safetyCopy(r.safety_score);
                 const mins      = Math.round(r.travel_time_min);
@@ -268,12 +270,17 @@ export default function App() {
 
                       {r.ai_explanation && (
                         <p className="plain-explanation">
-                          {plainify(r.ai_explanation).slice(0, 200)}
+                          {plainify(r.ai_explanation)}
                         </p>
                       )}
 
                       {r.alt_suggestion && (
-                        <div className="alert-box">{r.alt_suggestion}</div>
+                        <div className={`alert-box ${
+                          r.alt_suggestion.includes("banned") || r.alt_suggestion.includes("⚠️")
+                            ? "danger" : ""
+                        }`}>
+                          {r.alt_suggestion}
+                        </div>
                       )}
 
                       {r.flood_risk?.warning && (
@@ -336,7 +343,7 @@ export default function App() {
       />
 
       <footer className="app-footer">
-        Built for the Africa Communities 💙
+        Built for the Africa Community 💙
       </footer>
     </div>
   );
